@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>拼写训练营 Spelling Trainer</title>
+<script src='https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js'></script>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  body {
+    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+    min-height: 100vh; color:#fff; display:flex; flex-direction:column; align-items:center;
+    padding: 16px;
+  }
+  h1 { font-size: 1.5rem; margin: 10px 0 4px; letter-spacing:2px; }
+  .subtitle { opacity:.7; font-size:.85rem; margin-bottom:12px; }
+  .stats { display:flex; gap:18px; margin-bottom:14px; font-size:.95rem; }
+  .stats b { color:#ffd166; font-size:1.2rem; }
+  .card {
+    background: rgba(255,255,255,.12); border-radius:20px; padding:24px 20px;
+    width:100%; max-width:520px; text-align:center; backdrop-filter: blur(8px);
+    box-shadow: 0 8px 32px rgba(0,0,0,.3);
+  }
+  .hint-label { font-size:.8rem; opacity:.7; margin-bottom:6px; }
+  .chinese { font-size:1.9rem; font-weight:700; color:#ffd166; margin-bottom:6px; min-height:2.4rem; }
+  .phonetic { font-size:.9rem; opacity:.65; margin-bottom:14px; min-height:1.2rem; }
+  .letter-boxes { display:flex; flex-wrap:wrap; justify-content:center; gap:8px; margin-bottom:16px; min-height:52px; }
+  .lbox {
+    width:40px; height:48px; border-radius:10px; background:rgba(255,255,255,.15);
+    display:flex; align-items:center; justify-content:center; font-size:1.5rem; font-weight:700;
+    border:2px solid transparent; transition: all .15s;
+  }
+  .lbox.filled { background:#fff; color:#1e3c72; }
+  .lbox.current { border-color:#ffd166; animation: pulse 1s infinite; }
+  .lbox.error { background:#e63946; color:#fff; animation: shake .4s; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.6} }
+  @keyframes shake { 0%,100%{transform:translateX(0)} 25%{transform:translateX(-6px)} 75%{transform:translateX(6px)} }
+  #typeInput {
+    position:absolute; opacity:0; pointer-events:none;
+  }
+  .fake-input {
+    width:100%; max-width:320px; margin:0 auto 14px; padding:14px; border-radius:12px;
+    background:rgba(0,0,0,.25); font-size:1.1rem; letter-spacing:2px; cursor:text; min-height:50px;
+    display:flex; align-items:center; justify-content:center; word-break:break-all;
+  }
+  .fake-input .cursor { display:inline-block; width:2px; height:1.2em; background:#ffd166; animation: blink .8s infinite; margin-left:2px; }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+  .feedback { min-height:1.8rem; font-size:1rem; margin-bottom:10px; font-weight:600; }
+  .feedback.bad { color:#ff6b6b; }
+  .feedback.good { color:#7CFC98; }
+  .correct-word { font-size:1.1rem; color:#ffd166; margin-bottom:8px; min-height:1.5rem; }
+  .btn-row { display:flex; gap:10px; justify-content:center; flex-wrap:wrap; }
+  button {
+    border:none; border-radius:10px; padding:10px 18px; font-size:.95rem; cursor:pointer; font-weight:600;
+    background:#ffd166; color:#1e3c72; transition: transform .1s;
+  }
+  button:active { transform:scale(.95); }
+  button.ghost { background:rgba(255,255,255,.2); color:#fff; }
+  .progress-wrap { width:100%; max-width:520px; height:8px; background:rgba(255,255,255,.15); border-radius:4px; margin-top:14px; overflow:hidden; }
+  .progress-bar { height:100%; background:linear-gradient(90deg,#ffd166,#7CFC98); width:0%; transition:width .4s; }
+  /* modal */
+  .modal-mask { position:fixed; inset:0; background:rgba(0,0,0,.6); display:none; align-items:center; justify-content:center; z-index:10; padding:16px; }
+  .modal-mask.show { display:flex; }
+  .modal { background:#fff; color:#333; border-radius:16px; padding:20px; width:100%; max-width:520px; max-height:85vh; overflow-y:auto; }
+  .modal h2 { font-size:1.2rem; margin-bottom:12px; }
+  .tabs { display:flex; gap:8px; margin-bottom:14px; }
+  .tab { flex:1; padding:8px; border-radius:8px; text-align:center; cursor:pointer; background:#eee; font-weight:600; font-size:.9rem; }
+  .tab.active { background:#2a5298; color:#fff; }
+  textarea, .file-btn-box { width:100%; border:1px solid #ccc; border-radius:8px; padding:10px; font-size:.9rem; font-family:inherit; }
+  textarea { min-height:140px; resize:vertical; }
+  .file-btn-box { margin-top:10px; text-align:center; cursor:pointer; color:#2a5298; font-weight:600; background:#f0f4ff; }
+  .file-btn-box input { display:none; }
+  .ocr-status { margin-top:8px; font-size:.85rem; color:#888; text-align:center; min-height:1.2rem; }
+  .preview-list { margin-top:12px; max-height:180px; overflow-y:auto; font-size:.85rem; border:1px solid #eee; border-radius:8px; padding:8px; display:none; }
+  .preview-list div { padding:3px 0; border-bottom:1px dashed #eee; }
+  .modal .btn-row { margin-top:14px; }
+  .modal button.cancel { background:#eee; color:#666; }
+  .modal button.primary { background:#2a5298; color:#fff; }
+  .wordlist-view { width:100%; max-width:520px; margin-top:16px; font-size:.85rem; }
+  .wordlist-view summary { cursor:pointer; opacity:.8; }
+  .wordlist-view table { width:100%; border-collapse:collapse; margin-top:8px; background:rgba(255,255,255,.08); border-radius:10px; overflow:hidden; }
+  .wordlist-view td { padding:6px 10px; border-bottom:1px solid rgba(255,255,255,.1); }
+  .wordlist-view td.en { font-weight:600; color:#ffd166; }
+  .import-date { font-size:.75rem; opacity:.6; }
+  .remove-x { color:#ff6b6b; cursor:pointer; margin-left:8px; }
+</style>
+</head>
+<body>
+  <h1>📝 拼写训练营</h1>
+  <div class="subtitle">看中文提示 · 一个字母一个字母地拼出英文</div>
+  <div class="stats">
+    <span>已掌握 <b id="statMastered">0</b></span>
+    <span>本轮进度 <b id="statDone">0</b>/<b id="statTotal">0</b></span>
+    <span>连击 <b id="statStreak">0</b></span>
+  </div>
+
+  <div class="card" id="card">
+    <div class="hint-label">中文提示</div>
+    <div class="chinese" id="chineseHint">点击"开始"!</div>
+    <div class="phonetic" id="phonetic"></div>
+    <div class="letter-boxes" id="letterBoxes"></div>
+    <div class="fake-input" id="fakeInput"><span id="typedText"></span><span class="cursor"></span></div>
+    <input id="typeInput" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false">
+    <div class="correct-word" id="correctWord"></div>
+    <div class="feedback" id="feedback"></div>
+    <div class="btn-row">
+      <button id="btnStart">▶ 开始练习</button>
+      <button class="ghost" id="btnSpeak">🔊 发音</button>
+      <button class="ghost" id="btnSkip">跳过 ⏭</button>
+    </div>
+  </div>
+  <div class="progress-wrap"><div class="progress-bar" id="progressBar"></div></div>
+
+  <div class="btn-row" style="margin-top:16px;">
+    <button class="ghost" id="btnImport">📷 拍照/导入单词</button>
+    <button class="ghost" id="btnWordList">📚 单词库</button>
+  </div>
+
+  <!-- 导入弹窗 -->
+  <div class="modal-mask" id="importModal">
+    <div class="modal">
+      <h2>📷 导入新单词</h2>
+      <div class="tabs">
+        <div class="tab active" data-tab="photo">拍照识别</div>
+        <div class="tab" data-tab="text">粘贴文本</div>
+      </div>
+      <div id="tab-photo">
+        <div class="file-btn-box">
+          📸 点击拍照或选择图片
+          <input type="file" id="photoInput" accept="image/*" capture="environment">
+        </div>
+        <div class="ocr-status" id="ocrStatus">识别引擎首次加载需要几秒钟联网</div>
+        <div class="preview-list" id="photoPreview"></div>
+      </div>
+      <div id="tab-text" style="display:none;">
+        <textarea id="textInput" placeholder="每行一个：英文 —— 中文&#10;例如：apple —— 苹果&#10;也可以只写英文单词，中文留空"></textarea>
+      </div>
+      <div class="btn-row">
+        <button class="cancel" id="btnCancelImport">取消</button>
+        <button class="primary" id="btnConfirmImport" disabled>导入</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 单词库弹窗 -->
+  <div class="modal-mask" id="listModal">
+    <div class="modal">
+      <h2>📚 单词库（<span id="listCount">0</span>）</h2>
+      <div style="max-height:60vh;overflow-y:auto;">
+        <div id="importHistory"></div>
+        <table style="width:100%;border-collapse:collapse;font-size:.85rem;">
+          <tbody id="wordTableBody"></tbody>
+        </table>
+      </div>
+      <div class="btn-row"><button class="cancel" id="btnCloseList">关闭</button></div>
+    </div>
+  </div>
+
+<script>
+/* ============ 内置单词库 ============ */
+const BUILTIN = [["worst", "最差的"], ["represent", "代表"], ["shy", "孤僻的"], ["midst", "中部"], ["law", "法律"], ["overseas", "在国外"], ["crack", "断裂"], ["evil", "邪恶的"], ["fare", "(车)通行费(或车费)"], ["remain", "保持不变"], ["negative", "消极的"], ["oppress", "压迫"], ["occasional", "偶尔的"], ["net", "网"], ["frequent", "频繁的"], ["version", "版本"], ["brute", "身体的"], ["resistant", "抵抗…的"], ["geography", "地理"], ["liquor", "酒"], ["breakfast", "早餐"], ["tuition", "学费"], ["soluble", "可溶解的"], ["taper", "逐渐变细"], ["cupboard", "厨柜"], ["error", "错误"], ["vibration", "振动"], ["vase", "花瓶"], ["dock", "码头"], ["political", "政治的"], ["Oceania", "大洋洲"], ["steward", "管家"], ["shadow", "阴影"], ["suck", "吮吸"], ["professor", "教授"], ["bulk", "大部分"], ["compare", "比较"], ["thorough", "完全的"], ["conductor", "指挥"], ["thief", "小偷"], ["damp", "潮湿的"], ["underline", "强调"], ["endure", "忍受"], ["assume", "假定"], ["sleeve", "袖子"], ["instantly", "立刻的"], ["provision", "供给"], ["boast", "吹嘘"], ["assist", "帮助"], ["decline", "下降"], ["circumstance", "情况"], ["routine", "常规"], ["guidance", "指导"], ["statement", "声明"], ["compose", "创作"], ["innocent", "天真无邪"], ["detail", "细节"], ["disorder", "失调"], ["previous", "先前的"], ["abundant", "大量的"], ["consume", "消耗"], ["exhibit", "展览"], ["potential", "潜在的"], ["consult", "咨询"], ["insult", "侮辱"], ["introduction", "引进"], ["superior", "上等的"], ["incident", "事件"], ["abstract", "抽象的"], ["reflect", "反映"], ["unite", "团结"], ["prospect", "前景"], ["original", "原始的"], ["sensitive", "敏感的"], ["division", "差异"], ["parallel", "平行地"], ["storage", "存放"], ["participate", "参加"], ["evidence", "证据"], ["convince", "使…信服"], ["panel", "面板"], ["assemble", "集合"], ["dine", "进餐"], ["initial", "开始的"], ["sketch", "素描"]];
+const LS_KEY = 'spellingTrainer_v1';
+
+let state = loadState();
+function loadState(){
+  try { const s = JSON.parse(localStorage.getItem(LS_KEY)); if(s && s.words) return s; } catch(e){}
+  return { words: BUILTIN.map(w=>({en:w[0], zh:w[1], source:'内置词库', date:'', mastered:0})), history:{} };
+}
+function saveState(){ localStorage.setItem(LS_KEY, JSON.stringify(state)); }
+
+/* ============ 练习逻辑 ============ */
+let queue = [], current = null, typed = 0, errors = 0, streak = 0, doneSet = new Set();
+const $ = id => document.getElementById(id);
+
+function shuffle(a){ for(let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; } return a; }
+
+function startPractice(){
+  queue = shuffle(state.words.map((w,i)=>i));
+  doneSet = new Set(); streak = 0;
+  updateStats();
+  nextWord();
+  $('typeInput').focus();
+}
+
+function nextWord(){
+  if(queue.length===0){
+    $('chineseHint').textContent = '🎉 本轮完成!';
+    $('phonetic').textContent = ''; $('letterBoxes').innerHTML='';
+    $('feedback').textContent = '全部拼写完成，太棒了！'; $('feedback').className='feedback good';
+    $('correctWord').textContent = '';
+    current = null;
+    return;
+  }
+  const idx = queue.shift();
+  current = { idx, word: state.words[idx].en.toLowerCase() };
+  typed = 0; errors = 0;
+  $('chineseHint').textContent = state.words[idx].zh;
+  $('phonetic').textContent = '';
+  $('correctWord').textContent = '';
+  $('feedback').textContent = ''; $('feedback').className='feedback';
+  renderBoxes();
+  speakWord(current.word, true);
+  $('typeInput').focus();
+}
+
+function renderBoxes(errorAt=-1){
+  const box = $('letterBoxes'); box.innerHTML='';
+  const w = current.word;
+  for(let i=0;i<w.length;i++){
+    const d = document.createElement('div');
+    d.className = 'lbox';
+    if(i < typed || (i===typed && errorAt>=0)) d.textContent = w[i];
+    if(i < typed && errorAt<0) d.classList.add('filled');
+    if(i === typed && errorAt<0) d.classList.add('current');
+    if(i === errorAt) d.classList.add('error');
+    box.appendChild(d);
+  }
+}
+
+function handleKey(e){
+  if(!current) return;
+  const inp = $('typeInput');
+  const ch = inp.value.slice(-1).toLowerCase();
+  inp.value = '';
+  if(!ch) return;
+  if(/^[a-z]$/.test(ch)){
+    if(ch === current.word[typed]){
+      typed++;
+      renderBoxes();
+      if(typed === current.word.length) wordComplete();
+    } else {
+      errors++;
+      streak = 0;
+      $('correctWord').innerHTML = '✍️ 正确拼写：<b style="font-size:1.3rem">' + current.word + '</b>（请重新拼写）';
+      $('feedback').textContent = '❌ 第 ' + (typed+1) + ' 个字母应为 "' + current.word[typed] + '"，你输入了 "' + ch + '"';
+      $('feedback').className = 'feedback bad';
+      renderBoxes(typed);
+      setTimeout(()=>{ typed = 0; renderBoxes(); $('typeInput').focus(); }, 1600);
+    }
+  }
+}
+
+function wordComplete(){
+  const w = state.words[current.idx];
+  if(errors === 0){
+    streak++;
+    w.mastered++;
+    $('feedback').textContent = '✅ 完美！一次拼对';
+    $('feedback').className='feedback good';
+  } else {
+    $('feedback').textContent = '✅ 完成（本次错了 ' + errors + ' 次，已加入复习）';
+    $('feedback').className='feedback good';
+    queue.push(current.idx); // 重新加入队列复习
+  }
+  doneSet.add(current.idx);
+  updateStats();
+  setTimeout(nextWord, 900);
+}
+
+function updateStats(){
+  const mastered = state.words.filter(w=>w.mastered>0).length;
+  $('statMastered').textContent = mastered;
+  $('statDone').textContent = doneSet.size;
+  $('statTotal').textContent = state.words.length;
+  $('statStreak').textContent = streak;
+  $('progressBar').style.width = state.words.length ? (doneSet.size/state.words.length*100)+'%' : '0%';
+  saveState();
+}
+
+function speakWord(w, auto){
+  try{
+    speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(w);
+    u.lang='en-US'; u.rate = 0.85;
+    speechSynthesis.speak(u);
+  }catch(e){}
+}
+
+/* ============ 导入：拍照 OCR / 文本 ============ */
+let parsedNewWords = [];
+
+function parseLines(text){
+  const out = [];
+  const lines = text.split(/\n+/);
+  for(let raw of lines){
+    let line = raw.trim();
+    if(!line) continue;
+    line = line.replace(/[\u2014\u2013]/g,'-').replace(/——/g,'-');
+    // 尝试分隔符: —— - : ： tab 空格
+    let m = line.match(/^([A-Za-z][A-Za-z'\-\. ]*?)[\-:：\t]+(.+)$/);
+    let en, zh='';
+    if(m){ en = m[1].trim(); zh = m[2].trim(); }
+    else {
+      m = line.match(/^([A-Za-z][A-Za-z'\-\.]*)\s+(.+)$/);
+      if(m && /[\u4e00-\u9fff]/.test(m[2])){ en = m[1].trim(); zh = m[2].trim(); }
+      else if(/^[A-Za-z][A-Za-z'\-\.]*$/.test(line)){ en = line; }
+    }
+    if(en && /^[A-Za-z][A-Za-z'\-\.]*$/.test(en)) out.push({en: en.toLowerCase(), zh: zh});
+  }
+  // 去重（与现有库）
+  const exist = new Set(state.words.map(w=>w.en.toLowerCase()));
+  return out.filter(w=>!exist.has(w.en));
+}
+
+function renderPreview(){
+  const pv = $('photoPreview');
+  if(parsedNewWords.length===0){ pv.style.display='none'; $('btnConfirmImport').disabled = true; return; }
+  pv.style.display='block';
+  pv.innerHTML = '<b>识别到 ' + parsedNewWords.length + ' 个新单词：</b>' +
+    parsedNewWords.map(w=>'<div><b style="color:#2a5298">'+w.en+'</b> —— '+(w.zh||'（无中文，可在单词库中补充）')+'</div>').join('');
+  $('btnConfirmImport').disabled = false;
+}
+
+async function ocrImage(file){
+  $('ocrStatus').textContent = '⏳ 正在识别图片，请稍候…';
+  parsedNewWords = [];
+  try{
+    const result = await Tesseract.recognize(file, 'eng', { logger: m => {
+      if(m.status==='recognizing text') $('ocrStatus').textContent = '⏳ 识别中 ' + Math.round(m.progress*100) + '%';
+    }});
+    const text = result.data.text;
+    parsedNewWords = parseLines(text);
+    if(parsedNewWords.length===0){
+      $('ocrStatus').textContent = '⚠️ 未识别到单词，请换一张更清晰的图片，或用"粘贴文本"方式导入';
+    } else {
+      $('ocrStatus').textContent = '✅ 识别完成！';
+    }
+  }catch(e){
+    $('ocrStatus').textContent = '❌ 识别失败：' + e.message + '（请检查网络，或改用"粘贴文本"）';
+  }
+  renderPreview();
+}
+
+function doImport(){
+  if(parsedNewWords.length===0 && activeTab==='text'){
+    parsedNewWords = parseLines($('textInput').value);
+  }
+  if(parsedNewWords.length===0) return;
+  const today = new Date().toLocaleDateString('zh-CN');
+  const src = activeTab==='photo' ? '📷 拍照导入' : '📋 文本导入';
+  parsedNewWords.forEach(w=>{
+    state.words.push({en:w.en, zh:w.zh||'（待补充）', source:src, date:today, mastered:0});
+  });
+  if(!state.history[today]) state.history[today] = [];
+  state.history[today].push({source:src, count:parsedNewWords.length});
+  saveState();
+  alert('✅ 成功导入 ' + parsedNewWords.length + ' 个单词！');
+  closeImport();
+  parsedNewWords = []; $('textInput').value=''; $('photoPreview').style.display='none'; $('ocrStatus').textContent='';
+}
+
+let activeTab = 'photo';
+function switchTab(t){
+  activeTab = t;
+  document.querySelectorAll('.tab').forEach(el=>el.classList.toggle('active', el.dataset.tab===t));
+  $('tab-photo').style.display = t==='photo' ? 'block' : 'none';
+  $('tab-text').style.display = t==='text' ? 'block' : 'none';
+  if(t==='text'){ parsedNewWords = []; renderPreview(); $('btnConfirmImport').disabled = false; }
+  else renderPreview();
+}
+function closeImport(){ $('importModal').classList.remove('show'); }
+
+/* ============ 单词库视图 ============ */
+function openList(){
+  $('listCount').textContent = state.words.length;
+  const hist = Object.keys(state.history).sort().reverse()
+    .map(d=>'<div class="import-date">'+d+' · '+state.history[d].map(h=>h.source+' '+h.count+'个').join('，')+'</div>').join('');
+  $('importHistory').innerHTML = hist || '<div class="import-date">还没有拍照导入记录，点"📷 拍照/导入单词"开始吧！</div>';
+  const exist = new Set(BUILTIN.map(w=>w[0].toLowerCase()));
+  $('wordTableBody').innerHTML = state.words.map((w,i)=>
+    '<tr><td class="en">'+w.en+(w.mastered>0?' ⭐':'')+'</td><td>'+w.zh+'</td><td style="text-align:right">'+
+    (exist.has(w.en.toLowerCase())?'':'<span class="remove-x" onclick="removeWord('+i+')">✕</span>')+'</td></tr>'
+  ).join('');
+  $('listModal').classList.add('show');
+}
+function removeWord(i){
+  if(!confirm('删除单词 "'+state.words[i].en+'" ?')) return;
+  state.words.splice(i,1); saveState(); openList(); updateStats();
+}
+
+/* ============ 事件绑定 ============ */
+$('btnStart').onclick = startPractice;
+$('btnSkip').onclick = ()=>{ if(current){ queue.push(current.idx); nextWord(); } };
+$('btnSpeak').onclick = ()=>{ if(current) speakWord(current.word); };
+$('btnImport').onclick = ()=>{ $('importModal').classList.add('show'); };
+$('btnCancelImport').onclick = closeImport;
+$('btnConfirmImport').onclick = doImport;
+$('btnWordList').onclick = openList;
+$('btnCloseList').onclick = ()=>$('listModal').classList.remove('show');
+document.querySelectorAll('.tab').forEach(el=>el.onclick=()=>switchTab(el.dataset.tab));
+$('photoInput').onchange = e=>{ if(e.target.files[0]) ocrImage(e.target.files[0]); };
+$('fakeInput').onclick = ()=>$('typeInput').focus();
+$('card').onclick = ()=>{ if(current) $('typeInput').focus(); };
+$('typeInput').addEventListener('input', handleKey);
+document.addEventListener('keydown', e=>{
+  if(e.key==='Enter' && !current) startPractice();
+});
+updateStats();
+</script>
+</body>
+</html>

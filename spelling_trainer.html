@@ -268,11 +268,37 @@ function updateStats(){
   saveState();
 }
 
+/* iOS/浏览器语音激活：首次点击页面时预热语音引擎 */
+let ttsUnlocked = false;
+function unlockTTS(){
+  if(ttsUnlocked) return;
+  ttsUnlocked = true;
+  try{
+    speechSynthesis.getVoices();
+    const warm = new SpeechSynthesisUtterance(' ');
+    warm.volume = 0; warm.rate = 2;
+    speechSynthesis.speak(warm);
+  }catch(e){}
+}
+document.addEventListener('click', unlockTTS);
+document.addEventListener('touchstart', unlockTTS);
+if('speechSynthesis' in window){ speechSynthesis.getVoices(); speechSynthesis.onvoiceschanged = ()=>speechSynthesis.getVoices(); }
+
 function speakWord(w, auto){
   try{
+    if(!('speechSynthesis' in window)){
+      $('feedback').textContent = '⚠️ 当前浏览器不支持语音朗读';
+      $('feedback').className = 'feedback bad';
+      return;
+    }
     speechSynthesis.cancel();
     const u = new SpeechSynthesisUtterance(w);
-    u.lang='en-US'; u.rate = 0.85;
+    u.lang = 'en-US';
+    u.rate = 0.8;
+    u.volume = 1;
+    const voices = speechSynthesis.getVoices();
+    const v = voices.find(v=>v.lang && v.lang.startsWith('en') && /US|GB/i.test(v.lang)) || voices.find(v=>v.lang && v.lang.startsWith('en'));
+    if(v) u.voice = v;
     speechSynthesis.speak(u);
   }catch(e){}
 }
@@ -380,7 +406,7 @@ function removeWord(i){
 }
 
 /* ============ 事件绑定 ============ */
-$('btnStart').onclick = startPractice;
+$('btnStart').onclick = ()=>{ unlockTTS(); setTimeout(startPractice, 50); };
 $('btnSkip').onclick = ()=>{ if(current){ queue.push(current.idx); nextWord(); } };
 $('btnSpeak').onclick = ()=>{ if(current) speakWord(current.word); };
 $('btnImport').onclick = ()=>{ $('importModal').classList.add('show'); };
